@@ -384,19 +384,36 @@ async def bulk_server_action(bulk: BulkAction, username: str = Depends(verify_to
 
 @api_router.get("/categories")
 async def get_categories(username: str = Depends(verify_token)):
+    """Get all unique categories from servers"""
     servers = await get_pterodactyl_servers()
+    
+    # Cache for nest and egg names
+    nest_cache = {}
+    egg_cache = {}
     categories = set()
     
     for server in servers:
         attrs = server.get('attributes', {})
-        # Try to get egg name or nest name
-        egg = attrs.get('egg', {})
-        nest = attrs.get('nest', {})
+        nest_id = attrs.get('nest')
+        egg_id = attrs.get('egg')
         
-        if isinstance(egg, dict) and egg.get('name'):
-            categories.add(egg['name'])
-        if isinstance(nest, dict) and nest.get('name'):
-            categories.add(nest['name'])
+        # Get nest name
+        if nest_id and nest_id not in nest_cache:
+            nest_cache[nest_id] = await get_nest_info(nest_id)
+            
+        # Get egg name
+        cache_key = f"{nest_id}_{egg_id}"
+        if nest_id and egg_id and cache_key not in egg_cache:
+            egg_cache[cache_key] = await get_egg_info(nest_id, egg_id)
+        
+        # Add both nest and egg names as categories
+        if nest_id:
+            categories.add(nest_cache.get(nest_id, 'Unknown'))
+        if cache_key in egg_cache:
+            categories.add(egg_cache[cache_key])
+    
+    # Remove 'Unknown' if present
+    categories.discard('Unknown')
     
     return {"categories": sorted(list(categories))}
 
