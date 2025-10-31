@@ -291,8 +291,37 @@ async def login(credentials: AdminLogin):
 
 @api_router.get("/servers")
 async def get_servers(username: str = Depends(verify_token)):
+    """Get all servers with enriched data"""
     servers = await get_pterodactyl_servers()
-    return {"servers": servers}
+    
+    # Cache for nest and egg names
+    nest_cache = {}
+    egg_cache = {}
+    
+    enriched_servers = []
+    for server in servers:
+        attrs = server['attributes']
+        nest_id = attrs.get('nest')
+        egg_id = attrs.get('egg')
+        
+        # Get nest name
+        if nest_id and nest_id not in nest_cache:
+            nest_cache[nest_id] = await get_nest_info(nest_id)
+        
+        # Get egg name
+        cache_key = f"{nest_id}_{egg_id}"
+        if nest_id and egg_id and cache_key not in egg_cache:
+            egg_cache[cache_key] = await get_egg_info(nest_id, egg_id)
+        
+        # Add enriched data
+        enriched_server = {
+            **server,
+            'nest_name': nest_cache.get(nest_id, 'Unknown'),
+            'egg_name': egg_cache.get(cache_key, 'Unknown')
+        }
+        enriched_servers.append(enriched_server)
+    
+    return {"servers": enriched_servers}
 
 @api_router.get("/servers/resources")
 async def get_all_resources(username: str = Depends(verify_token)):
