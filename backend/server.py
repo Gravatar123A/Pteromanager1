@@ -406,21 +406,37 @@ async def server_power_action(server_id: str, action: ServerAction, username: st
 @api_router.post("/servers/bulk-action")
 async def bulk_server_action(bulk: BulkAction, username: str = Depends(verify_token)):
     servers = await get_pterodactyl_servers()
+    
+    # Get category mappings
+    nest_cache = {}
+    egg_cache = {}
+    
     affected = []
     
     for server in servers:
-        server_id = server['attributes']['identifier']
-        server_name = server['attributes']['name']
+        attrs = server['attributes']
+        server_id = attrs['identifier']
+        server_name = attrs['name']
+        nest_id = attrs.get('nest')
+        egg_id = attrs.get('egg')
+        
+        # Get nest/egg names
+        if nest_id and nest_id not in nest_cache:
+            nest_cache[nest_id] = await get_nest_info(nest_id)
+        
+        cache_key = f"{nest_id}_{egg_id}"
+        if nest_id and egg_id and cache_key not in egg_cache:
+            egg_cache[cache_key] = await get_egg_info(nest_id, egg_id)
+        
+        nest_name = nest_cache.get(nest_id, 'Unknown')
+        egg_name = egg_cache.get(cache_key, 'Unknown')
         
         # Filter logic
         should_act = False
         if bulk.filter_type == "all":
             should_act = True
         elif bulk.filter_type == "category" and bulk.category:
-            egg_name = server['attributes'].get('egg', {}).get('name', '') if isinstance(server['attributes'].get('egg'), dict) else ''
-            nest_name = server['attributes'].get('nest', {}).get('name', '') if isinstance(server['attributes'].get('nest'), dict) else ''
-            category = egg_name or nest_name
-            if bulk.category.lower() in category.lower():
+            if bulk.category in [nest_name, egg_name]:
                 should_act = True
         elif bulk.filter_type == "inactive":
             resource_data = await get_server_resources(server_id)
