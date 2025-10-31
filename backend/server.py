@@ -325,20 +325,75 @@ async def get_servers(username: str = Depends(verify_token)):
 
 @api_router.get("/servers/resources")
 async def get_all_resources(username: str = Depends(verify_token)):
+    """Get resources for all servers with totals"""
     servers = await get_pterodactyl_servers()
     resources = []
     
-    for server in servers:
-        server_id = server['attributes']['identifier']
-        resource_data = await get_server_resources(server_id)
-        if resource_data:
-            resources.append({
-                "server_id": server_id,
-                "name": server['attributes']['name'],
-                "resources": resource_data.get('attributes', {})
-            })
+    total_cpu = 0
+    total_memory = 0
+    total_disk = 0
+    total_players = 0
+    online_count = 0
     
-    return {"resources": resources}
+    # Fetch resources for all servers concurrently (in batches to avoid overwhelming the API)
+    batch_size = 10
+    for i in range(0, len(servers), batch_size):
+        batch = servers[i:i+batch_size]
+        tasks = []
+        
+        for server in batch:
+            server_id = server['attributes']['identifier']
+            tasks.append(get_server_resources(server_id))
+        
+        results = await asyncio.gather(*tasks)
+        
+        for idx, resource_data in enumerate(results):
+            if resource_data:
+                server = batch[idx]
+                attrs = resource_data.get('attributes', {})
+                
+                # Extract player count from various sources
+                players_current = 0
+                if 'resources' in attrs:
+                    # Some game servers report player count in resources
+                    players_current = attrs['resources'].get('players', 0)
+                
+                # For Minecraft servers, check the query data
+                if attrs.get('query'):
+                    players_current = attrs['query'].get('players', {}).get('online', 0)
+                
+                cpu = attrs.get('cpu_absolute', 0)
+                memory = attrs.get('memory_bytes', 0)
+                disk = attrs.get('disk_bytes', 0)
+                state = attrs.get('current_state', 'offline')
+                
+                # Update totals
+                total_cpu += cpu
+                total_memory += memory
+                total_disk += disk
+                total_players += players_current
+                
+                if state == 'running':
+                    online_count += 1
+                
+                resources.append({
+                    "server_id": server['attributes']['identifier'],
+                    "name": server['attributes']['name'],
+                    "resources": attrs,
+                    "players": players_current
+                })
+    
+    return {
+        "resources": resources,
+        "totals": {
+            "cpu": round(total_cpu, 2),
+            "memory_mb": round(total_memory / 1024 / 1024, 2),
+            "disk_mb": round(total_disk / 1024 / 1024, 2),
+            "players": total_players,
+            "online_servers": online_count,
+            "total_servers": len(servers)
+        }
+    }
 
 @api_router.post("/servers/{server_id}/power")
 async def server_power_action(server_id: str, action: ServerAction, username: str = Depends(verify_token)):
