@@ -137,25 +137,81 @@ async def send_discord_webhook(message: str):
 
 # Pterodactyl API functions
 async def get_pterodactyl_servers():
+    """Fetch all servers with pagination"""
     async with httpx.AsyncClient() as client:
         try:
-            # Use application API to get all servers
             headers = {
                 "Authorization": f"Bearer {PTERO_APP_KEY}",
                 "Accept": "application/json",
                 "Content-Type": "application/json"
             }
+            
+            all_servers = []
+            page = 1
+            
+            while True:
+                response = await client.get(
+                    f"{PTERO_URL}/api/application/servers?page={page}&per_page=100",
+                    headers=headers,
+                    timeout=15.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                servers = data.get('data', [])
+                all_servers.extend(servers)
+                
+                # Check if there are more pages
+                pagination = data.get('meta', {}).get('pagination', {})
+                if page >= pagination.get('total_pages', 1):
+                    break
+                page += 1
+            
+            logging.info(f"Fetched {len(all_servers)} servers total")
+            return all_servers
+        except Exception as e:
+            logging.error(f"Failed to fetch servers: {e}")
+            return []
+
+async def get_nest_info(nest_id: int):
+    """Get nest information by ID"""
+    async with httpx.AsyncClient() as client:
+        try:
+            headers = {
+                "Authorization": f"Bearer {PTERO_APP_KEY}",
+                "Accept": "application/json"
+            }
             response = await client.get(
-                f"{PTERO_URL}/api/application/servers",
+                f"{PTERO_URL}/api/application/nests/{nest_id}",
                 headers=headers,
                 timeout=10.0
             )
             response.raise_for_status()
             data = response.json()
-            return data.get('data', [])
+            return data.get('attributes', {}).get('name', 'Unknown')
         except Exception as e:
-            logging.error(f"Failed to fetch servers: {e}")
-            return []
+            logging.warning(f"Failed to fetch nest {nest_id}: {e}")
+            return "Unknown"
+
+async def get_egg_info(nest_id: int, egg_id: int):
+    """Get egg information by nest and egg ID"""
+    async with httpx.AsyncClient() as client:
+        try:
+            headers = {
+                "Authorization": f"Bearer {PTERO_APP_KEY}",
+                "Accept": "application/json"
+            }
+            response = await client.get(
+                f"{PTERO_URL}/api/application/nests/{nest_id}/eggs/{egg_id}",
+                headers=headers,
+                timeout=10.0
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get('attributes', {}).get('name', 'Unknown')
+        except Exception as e:
+            logging.warning(f"Failed to fetch egg {egg_id}: {e}")
+            return "Unknown"
 
 async def get_server_resources(server_id: str):
     # Skip if client key is not properly configured
