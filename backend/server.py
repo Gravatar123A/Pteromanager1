@@ -241,11 +241,7 @@ async def get_server_resources(server_id: str):
             }
 
 async def control_server_power(server_id: str, action: str):
-    # Skip if client key is not properly configured
-    if not PTERO_CLIENT_KEY or len(PTERO_CLIENT_KEY) < 20:
-        logging.warning(f"Client API key not configured properly. Cannot control server {server_id}")
-        return False
-    
+    """Control server power"""
     async with httpx.AsyncClient() as client:
         try:
             headers = {
