@@ -173,8 +173,15 @@ async def get_pterodactyl_servers():
             logging.error(f"Failed to fetch servers: {e}")
             return []
 
+# Cache for nest and egg names to avoid repeated API calls
+_nest_cache = {}
+_egg_cache = {}
+
 async def get_nest_info(nest_id: int):
-    """Get nest information by ID"""
+    """Get nest information by ID with caching"""
+    if nest_id in _nest_cache:
+        return _nest_cache[nest_id]
+    
     async with httpx.AsyncClient() as client:
         try:
             headers = {
@@ -188,13 +195,20 @@ async def get_nest_info(nest_id: int):
             )
             response.raise_for_status()
             data = response.json()
-            return data.get('attributes', {}).get('name', 'Unknown')
+            name = data.get('attributes', {}).get('name', 'Unknown')
+            _nest_cache[nest_id] = name
+            return name
         except Exception as e:
             logging.warning(f"Failed to fetch nest {nest_id}: {e}")
+            _nest_cache[nest_id] = "Unknown"
             return "Unknown"
 
 async def get_egg_info(nest_id: int, egg_id: int):
-    """Get egg information by nest and egg ID"""
+    """Get egg information by nest and egg ID with caching"""
+    cache_key = f"{nest_id}_{egg_id}"
+    if cache_key in _egg_cache:
+        return _egg_cache[cache_key]
+    
     async with httpx.AsyncClient() as client:
         try:
             headers = {
@@ -208,9 +222,12 @@ async def get_egg_info(nest_id: int, egg_id: int):
             )
             response.raise_for_status()
             data = response.json()
-            return data.get('attributes', {}).get('name', 'Unknown')
+            name = data.get('attributes', {}).get('name', 'Unknown')
+            _egg_cache[cache_key] = name
+            return name
         except Exception as e:
             logging.warning(f"Failed to fetch egg {egg_id}: {e}")
+            _egg_cache[cache_key] = "Unknown"
             return "Unknown"
 
 async def get_server_resources(server_id: str):
