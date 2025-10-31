@@ -158,6 +158,18 @@ async def get_pterodactyl_servers():
             return []
 
 async def get_server_resources(server_id: str):
+    # Skip if client key is not properly configured
+    if not PTERO_CLIENT_KEY or len(PTERO_CLIENT_KEY) < 20:
+        return {
+            "attributes": {
+                "current_state": "unknown",
+                "cpu_absolute": 0,
+                "memory_bytes": 0,
+                "memory_limit_bytes": 1,
+                "disk_bytes": 0
+            }
+        }
+    
     async with httpx.AsyncClient() as client:
         try:
             headers = {
@@ -172,8 +184,16 @@ async def get_server_resources(server_id: str):
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            logging.error(f"Failed to fetch resources for {server_id}: {e}")
-            return None
+            logging.warning(f"Failed to fetch resources for {server_id}: {e}")
+            return {
+                "attributes": {
+                    "current_state": "unknown",
+                    "cpu_absolute": 0,
+                    "memory_bytes": 0,
+                    "memory_limit_bytes": 1,
+                    "disk_bytes": 0
+                }
+            }
 
 async def control_server_power(server_id: str, action: str):
     async with httpx.AsyncClient() as client:
