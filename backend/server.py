@@ -214,18 +214,7 @@ async def get_egg_info(nest_id: int, egg_id: int):
             return "Unknown"
 
 async def get_server_resources(server_id: str):
-    # Skip if client key is not properly configured
-    if not PTERO_CLIENT_KEY or len(PTERO_CLIENT_KEY) < 20:
-        return {
-            "attributes": {
-                "current_state": "unknown",
-                "cpu_absolute": 0,
-                "memory_bytes": 0,
-                "memory_limit_bytes": 1,
-                "disk_bytes": 0
-            }
-        }
-    
+    """Get server resources including player count"""
     async with httpx.AsyncClient() as client:
         try:
             headers = {
@@ -243,7 +232,7 @@ async def get_server_resources(server_id: str):
             logging.warning(f"Failed to fetch resources for {server_id}: {e}")
             return {
                 "attributes": {
-                    "current_state": "unknown",
+                    "current_state": "offline",
                     "cpu_absolute": 0,
                     "memory_bytes": 0,
                     "memory_limit_bytes": 1,
