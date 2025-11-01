@@ -342,51 +342,43 @@ app.get("/api/servers", authMiddleware, async (c) => {
     // Fetch live resource usage if API is configured
     if (apiConfig && apiConfig.pterodactyl_api_url && apiConfig.pterodactyl_client_key) {
       try {
-        const clientServers = await callPterodactylClientAPI('', { method: 'GET' }, apiConfig.pterodactyl_api_url, apiConfig.pterodactyl_client_key) as { data?: any[] };
-        const clientData = clientServers.data || [];
+        // Fetch all client servers with their resources
+        const clientServersResponse = await callPterodactylClientAPI('', { method: 'GET' }, apiConfig.pterodactyl_api_url, apiConfig.pterodactyl_client_key) as { data?: any[] };
+        const clientData = clientServersResponse.data || [];
+
+        console.log(`Fetched ${clientData.length} servers from Pterodactyl Client API`);
 
         // Get detailed server info including utilization
         const serverPromises = results.map(async (dbServer: any) => {
-          const liveServer = clientData.find((ls: any) => ls.attributes.identifier === dbServer.pterodactyl_id);
-          
-          if (liveServer) {
-            const attributes = liveServer.attributes;
-            const resources = attributes.resources || {};
+          try {
+            const liveServer = clientData.find((ls: any) => ls.attributes?.identifier === dbServer.pterodactyl_id);
             
+            if (!liveServer) {
+              console.log(`No live server data found for ${dbServer.pterodactyl_id}`);
+              return { ...dbServer, player_count: 0 };
+            }
+
+            const attributes = liveServer.attributes;
+            
+            // Fetch detailed resources for this specific server
+            let resources: any = {};
             let playerCount = 0;
             
-            // Try to get player count for game servers
-            if (['minecraft', 'gta', 'discord-bot'].includes(dbServer.category) && attributes.current_state === 'running') {
-              try {
-                const utilizationResponse = await callPterodactylClientAPI(
-                  `/servers/${dbServer.pterodactyl_id}/resources`,
-                  { method: 'GET' },
-                  apiConfig.pterodactyl_api_url,
-                  apiConfig.pterodactyl_client_key || ''
-                ) as any;
-                
-                // Extract player count from utilization data or environment variables
-                const utilization = utilizationResponse?.attributes || {};
-                
-                // Check environment variables for player count
-                if (utilization.environment) {
-                  const playerEnvVar = Object.keys(utilization.environment).find(key => 
-                    key.toLowerCase().includes('player') || 
-                    key.toLowerCase().includes('online') ||
-                    key.toLowerCase() === 'max_players' ||
-                    key.toLowerCase() === 'server_port'
-                  );
-                  
-                  if (playerEnvVar && utilization.environment[playerEnvVar]) {
-                    const envValue = utilization.environment[playerEnvVar];
-                    if (typeof envValue === 'number') {
-                      playerCount = envValue;
-                    }
-                  }
-                }
-                
+            try {
+              const resourcesResponse = await callPterodactylClientAPI(
+                `/servers/${dbServer.pterodactyl_id}/resources`,
+                { method: 'GET' },
+                apiConfig.pterodactyl_api_url,
+                apiConfig.pterodactyl_client_key || ''
+              ) as any;
+              
+              resources = resourcesResponse?.attributes || {};
+              console.log(`Resources for ${dbServer.name}:`, JSON.stringify(resources).substring(0, 200));
+              
+              // Try to get player count for game servers
+              if (['minecraft', 'gta', 'discord-bot'].includes(dbServer.category) && resources.current_state === 'running') {
                 // Try to get accurate player counts for game servers
-                if (dbServer.category === 'minecraft' && playerCount === 0) {
+                if (dbServer.category === 'minecraft') {
                   try {
                     const result = await getGenericPlayerCount('minecraft', { resources });
                     playerCount = result.players;
@@ -396,7 +388,7 @@ app.get("/api/servers", authMiddleware, async (c) => {
                 }
                 
                 // For GTA/FiveM servers
-                if (dbServer.category === 'gta' && playerCount === 0) {
+                if (dbServer.category === 'gta') {
                   try {
                     const result = await getGenericPlayerCount('gta', { resources });
                     playerCount = result.players;
@@ -406,7 +398,7 @@ app.get("/api/servers", authMiddleware, async (c) => {
                 }
                 
                 // For Discord bots, show "users" instead of players
-                if (dbServer.category === 'discord-bot' && playerCount === 0) {
+                if (dbServer.category === 'discord-bot') {
                   try {
                     const result = await getGenericPlayerCount('discord-bot', { resources });
                     playerCount = result.players;
@@ -414,32 +406,36 @@ app.get("/api/servers", authMiddleware, async (c) => {
                     console.log('Could not fetch Discord bot user count:', err);
                   }
                 }
-                
-              } catch (err) {
-                console.log(`Could not fetch utilization for ${dbServer.pterodactyl_id}:`, err);
               }
+            } catch (resourceError) {
+              console.error(`Failed to fetch resources for ${dbServer.pterodactyl_id}:`, resourceError);
+              // Use the resources from the initial server list if detailed fetch fails
+              resources = attributes.resources || {};
             }
             
             return {
               ...dbServer,
-              status: attributes.current_state || dbServer.status,
+              status: resources.current_state || attributes.current_state || dbServer.status,
               cpu_usage: Math.round(resources.cpu_absolute || 0),
               ram_usage: Math.round((resources.memory_bytes || 0) / 1024 / 1024), // Convert to MB
               disk_usage: Math.round((resources.disk_bytes || 0) / 1024 / 1024), // Convert to MB
               network_rx: resources.network_rx_bytes || 0,
               network_tx: resources.network_tx_bytes || 0,
-              uptime: Math.round((Date.now() - new Date(attributes.updated_at || Date.now()).getTime()) / 1000),
+              uptime: resources.uptime || 0,
               player_count: playerCount,
             };
+          } catch (serverError) {
+            console.error(`Error processing server ${dbServer.pterodactyl_id}:`, serverError);
+            return { ...dbServer, player_count: 0 };
           }
-          
-          return { ...dbServer, player_count: 0 };
         });
 
         servers = await Promise.all(serverPromises);
+        console.log(`Processed ${servers.length} servers with resource data`);
       } catch (error) {
         console.error("Failed to fetch live server data:", error);
         // Continue with database data only
+        servers = results;
       }
     }
 
