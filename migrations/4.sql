@@ -1,0 +1,1 @@
+ALTER TABLE servers ADD COLUMN player_count INTEGER DEFAULT 0;
